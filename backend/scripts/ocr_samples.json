@@ -1,0 +1,121 @@
+[
+  {
+    "name": "Cargills two-line with barcode",
+    "text": "CARGILLS FOOD CITY\nDate: 12/04/2026\n1 BEE SAFE CARROT\nVGE0D7D 0.598 310.00 185.38\n2 FREELAN PAPADAM\nCSE0472 3.000 125.00 375.00\n3 MNEWDALE EGGS\nDYS0201 2.000 649.00 1298.00\nTOTAL 1858.38",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["carrot", "papadam", "eggs"],
+      "mustHaveTotal": true,
+      "total": 1858.38
+    }
+  },
+  {
+    "name": "Keells single-line code prefix",
+    "text": "KEELLS SUPER\nDY40928 NEWDALE YOGHURT 1.000 560.00 560.00\nVG01088 ASP OYSTER MUSHROOMS 1.000 200.00 200.00\nBV11530 ANCHOR BUTTER 200G 2.000 350.00 700.00\nTOTAL 1460.00",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["yoghurt", "mushroom", "butter"],
+      "mustHaveTotal": true,
+      "total": 1460
+    }
+  },
+  {
+    "name": "Pharmacy trailing price lines",
+    "text": "MEDILINK PHARMACY\nDate: 22/04/2026\nAmoxicillin 500mg Caps 45.00\nPanadol Extra Tabs x10 89.00\nBrufen 400mg Tabs 120.00\nTOTAL 254.00",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["amoxicillin", "panadol", "brufen"],
+      "mustHaveTotal": true,
+      "total": 254
+    }
+  },
+  {
+    "name": "Hardware compact qty x name",
+    "text": "CITY HARDWARE\n2 x PVC PIPE 10FT 3,200.00\n1 x CEMENT BAG 50KG 2,450.00\n3 x WHITE PAINT 1L 6,750.00\nTOTAL 12,400.00",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["pipe", "cement", "paint"],
+      "mustHaveTotal": true,
+      "total": 12400
+    }
+  },
+  {
+    "name": "Two-line split description then numbers",
+    "text": "LAUGFS MART\nChicken Breast 1KG\n2 820.00 1640.00\nRice Keeri Samba 5KG\n1 2500.00 2500.00\nTOTAL 4140.00",
+    "expect": {
+      "minItems": 2,
+      "mustContainNames": ["chicken", "rice"],
+      "mustHaveTotal": true,
+      "total": 4140
+    }
+  },
+  {
+    "name": "Column header Qty Sell Price Amount",
+    "text": "SATHOSA\nDescription Qty Sell Price Amount\nLANKA SAMBA 5KG 1 1320.00 1320.00\nDAL RED 1KG 2 420.00 840.00\nONION 1KG 1 380.00 380.00\nTOTAL 2540.00",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["samba", "dal", "onion"],
+      "mustHaveTotal": true,
+      "total": 2540
+    }
+  },
+  {
+    "name": "Discount per line",
+    "text": "SUPER DEALS\nItem Qty Unit Price Discount Amount\nMILK POWDER 1KG 1 2450.00 100.00 2350.00\nTEA 400G 2 980.00 80.00 1880.00\nTOTAL 4230.00",
+    "expect": {
+      "minItems": 2,
+      "mustContainNames": ["milk", "tea"],
+      "mustHaveTotal": true,
+      "total": 4230
+    }
+  },
+  {
+    "name": "Description and code split",
+    "text": "FRESH MART\nPINEAPPLE LARGE\nITM99201 1.000 480.00 480.00\nBANANA AMBUN\nFRU11320 2.000 220.00 440.00\nTOTAL 920.00",
+    "expect": {
+      "minItems": 2,
+      "mustContainNames": ["pineapple", "banana"],
+      "mustHaveTotal": true,
+      "total": 920
+    }
+  },
+  {
+    "name": "Low quality OCR artifacts",
+    "text": "CHARA\n2 IRLAND VANILLA COREE E\ni AA ge RK 190.00 . >>\n3 MNEWDALE SET YOGHULT 8 5\nDY4D928 | 1.000 560.00 36C\n4 ASP OYSTER MUSHROC MS\nVGOL0SE | 1.000 200.00\nTOTAL 1870.00",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["vanilla", "yogh", "mush"],
+      "mustHaveTotal": true
+    }
+  },
+  {
+    "name": "Pharmacy with code and amount",
+    "text": "HEALTH PLUS\nCode Description Qty Rate Value\nAMX500 Amoxicillin 500mg 10 22.50 225.00\nPAN500 Panadol 500mg 12 18.00 216.00\nNET TOTAL 441.00",
+    "expect": {
+      "minItems": 2,
+      "mustContainNames": ["amoxicillin", "panadol"],
+      "mustHaveTotal": true,
+      "total": 441
+    }
+  },
+  {
+    "name": "Retail with commas and mixed spacing",
+    "text": "HOME NEEDS\nDescription Qty Price Amount\nSUGAR 1KG      2     310.00     620.00\nCOCONUT OIL 1L 1   1,120.00   1,120.00\nFLOUR 1KG  3  220.00  660.00\nTOTAL 2,400.00",
+    "expect": {
+      "minItems": 3,
+      "mustContainNames": ["sugar", "coconut", "flour"],
+      "mustHaveTotal": true,
+      "total": 2400
+    }
+  },
+  {
+    "name": "Free issue and batch present",
+    "text": "WHOLESALE\nItem Per Unit Qty Discount Amount\nBISCUIT 100G BATCH A12 120.00 5 0.00 600.00\nNOODLES 400G FREE ISSUE 0.00 1 0.00 0.00\nSOYA MEAT 90G BATCH B33 85.00 4 10.00 330.00\nGRAND TOTAL 930.00",
+    "expect": {
+      "minItems": 2,
+      "mustContainNames": ["biscuit", "soya"],
+      "mustHaveTotal": true,
+      "total": 930
+    }
+  }
+]

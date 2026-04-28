@@ -1,0 +1,29 @@
+<svg width="760" height="760" viewBox="0 0 760 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="760" height="760" rx="44" fill="#F8FBFA"/>
+  <g filter="url(#shadow)">
+    <path d="M192 180H234C250 180 265 191 270 206L320 392C324 404 335 412 348 412H522C536 412 549 404 555 391L591 278" stroke="#1C9A76" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M344 412H515" stroke="#1C9A76" stroke-width="28" stroke-linecap="round"/>
+    <rect x="328" y="254" width="38" height="118" rx="8" fill="#FFA11A"/>
+    <rect x="390" y="222" width="38" height="150" rx="8" fill="#FFA11A"/>
+    <rect x="452" y="190" width="38" height="182" rx="8" fill="#FFA11A"/>
+    <rect x="514" y="154" width="38" height="218" rx="8" fill="#FFA11A"/>
+    <circle cx="360" cy="470" r="30" fill="#1C9A76"/>
+    <circle cx="360" cy="470" r="11" fill="#F8FBFA"/>
+    <circle cx="495" cy="470" r="30" fill="#1C9A76"/>
+    <circle cx="495" cy="470" r="11" fill="#F8FBFA"/>
+  </g>
+  <text x="380" y="618" text-anchor="middle" fill="#2F3136" font-size="94" font-family="Poppins, Avenir Next, Segoe UI, sans-serif" font-weight="800" letter-spacing="-2">Saverly</text>
+  <text x="380" y="680" text-anchor="middle" fill="#4C5057" font-size="38" font-family="Poppins, Avenir Next, Segoe UI, sans-serif" font-weight="500">See Where You Save.</text>
+  <defs>
+    <filter id="shadow" x="164" y="144" width="459" height="368" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="8"/>
+      <feGaussianBlur stdDeviation="10"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0549 0 0 0 0 0.2235 0 0 0 0 0.1765 0 0 0 0.16 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+    </filter>
+  </defs>
+</svg>

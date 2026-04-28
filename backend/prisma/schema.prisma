@@ -1,0 +1,320 @@
+// This is your Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum InvoiceStatus {
+  PENDING
+  PROCESSING
+  REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum NotificationType {
+  PRICE_DROP
+  PRICE_ALERT
+  NEW_PRODUCT
+  SYSTEM
+  INVOICE_VERIFIED
+}
+
+// ─── Users ───────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  name          String
+  phone         String?
+  avatarUrl     String?
+  role          Role     @default(USER)
+  isActive      Boolean  @default(true)
+  pushToken     String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  shoppingLists ShoppingList[]
+  favourites    Favourite[]
+  notifications Notification[]
+  invoices      Invoice[]
+  priceAlerts   PriceAlert[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ─── Categories ──────────────────────────────────────────
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  iconUrl     String?
+  description String?   @db.Text
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  products Product[]
+
+  @@map("categories")
+}
+
+// ─── Products ────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  categoryId  String
+  brand       String?
+  defaultUnit String   @default("unit") // kg, g, ml, L, unit, pack
+  barcode     String?  @unique
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category          Category           @relation(fields: [categoryId], references: [id])
+  prices            Price[]
+  favourites        Favourite[]
+  shoppingListItems ShoppingListItem[]
+  priceAlerts       PriceAlert[]
+  invoiceItems      InvoiceItem[]
+
+  @@index([name])
+  @@index([categoryId])
+  @@index([barcode])
+  @@map("products")
+}
+
+// ─── Supermarkets ────────────────────────────────────────
+
+model Supermarket {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  website     String?
+  primaryColor String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  locations SupermarketLocation[]
+  prices    Price[]
+  invoices  Invoice[]
+
+  @@map("supermarkets")
+}
+
+model SupermarketLocation {
+  id            String  @id @default(cuid())
+  supermarketId String
+  name          String?
+  address       String
+  city          String
+  state         String?
+  postalCode    String?
+  latitude      Float
+  longitude     Float
+  phone         String?
+  openingHours  String?  @db.Text
+  isActive      Boolean @default(true)
+
+  supermarket Supermarket @relation(fields: [supermarketId], references: [id])
+
+  @@index([supermarketId])
+  @@index([city])
+  @@map("supermarket_locations")
+}
+
+// ─── Prices ──────────────────────────────────────────────
+
+model Price {
+  id            String   @id @default(cuid())
+  productId     String
+  supermarketId String
+  price         Float
+  unit          String   @default("unit")
+  quantity      Float    @default(1)
+  isOnSale      Boolean  @default(false)
+  salePrice     Float?
+  saleEndsAt    DateTime?
+  source        String   @default("manual") // manual, invoice, scraper
+  invoiceId     String?
+  isVerified    Boolean  @default(false)
+  recordedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  product     Product     @relation(fields: [productId], references: [id])
+  supermarket Supermarket @relation(fields: [supermarketId], references: [id])
+  invoice     Invoice?    @relation(fields: [invoiceId], references: [id])
+
+  @@index([productId, supermarketId])
+  @@index([recordedAt])
+  @@index([supermarketId])
+  @@map("prices")
+}
+
+// ─── Shopping Lists ──────────────────────────────────────
+
+model ShoppingList {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items ShoppingListItem[]
+
+  @@index([userId])
+  @@map("shopping_lists")
+}
+
+model ShoppingListItem {
+  id             String   @id @default(cuid())
+  shoppingListId String
+  productId      String
+  quantity       Float    @default(1)
+  unit           String?
+  note           String?
+  isChecked      Boolean  @default(false)
+  addedAt        DateTime @default(now())
+
+  shoppingList ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+
+  @@unique([shoppingListId, productId])
+  @@map("shopping_list_items")
+}
+
+// ─── Favourites ──────────────────────────────────────────
+
+model Favourite {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+  @@map("favourites")
+}
+
+// ─── Price Alerts ────────────────────────────────────────
+
+model PriceAlert {
+  id           String   @id @default(cuid())
+  userId       String
+  productId    String
+  targetPrice  Float
+  isActive     Boolean  @default(true)
+  triggeredAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId])
+  @@map("price_alerts")
+}
+
+// ─── Invoices (OCR) ──────────────────────────────────────
+
+model Invoice {
+  id            String        @id @default(cuid())
+  userId        String
+  supermarketId String?
+  imageUrl      String
+  rawOcrText    String?  @db.Text
+  parsedData    Json?
+  status        InvoiceStatus @default(PENDING)
+  invoiceDate   DateTime?
+  totalAmount   Float?
+  notes         String?  @db.Text
+  verifiedBy    String?
+  rejectedReason String? @db.Text
+  createdAt     DateTime      @default(now())
+  processedAt   DateTime?
+  verifiedAt    DateTime?
+
+  user        User         @relation(fields: [userId], references: [id])
+  supermarket Supermarket? @relation(fields: [supermarketId], references: [id])
+  items       InvoiceItem[]
+  prices      Price[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id           String  @id @default(cuid())
+  invoiceId    String
+  productName  String
+  quantity     Float   @default(1)
+  unitPrice    Float
+  totalPrice   Float
+  unit         String?
+  productId    String? // matched product after review
+  isConfirmed  Boolean @default(false)
+
+  invoice  Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product  Product? @relation(fields: [productId], references: [id])
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+// ─── Notifications ───────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  body      String           @db.Text
+  type      NotificationType @default(SYSTEM)
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}

@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #1C9A76;
+  --color-primary-light: #39B58F;
+  --color-primary-dark: #14765A;
+  --color-secondary: #FFA11A;
+  --color-secondary-light: #FFC15C;
+  --color-background: #F8FBFA;
+  --color-text: #2F3136;
+  --color-text-secondary: #5F6772;
+}
+
+body {
+  @apply bg-[#F8FBFA] text-[#2D3B39];
+  font-family: 'Poppins', 'Avenir Next', 'Segoe UI', sans-serif;
+  background-image: radial-gradient(circle at top left, rgba(255, 161, 26, 0.18), transparent 28%), radial-gradient(circle at 85% 10%, rgba(28, 154, 118, 0.18), transparent 24%), linear-gradient(180deg, #f8fbfa 0%, #f3faf7 100%);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.brand-auth-shell {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255, 161, 26, 0.18), transparent 20%),
+    radial-gradient(circle at 85% 15%, rgba(57, 181, 143, 0.22), transparent 18%),
+    linear-gradient(145deg, #f3faf7 0%, #ffffff 50%, #eef8f4 100%);
+}
+
+.brand-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(4px);
+}
+
+.brand-orb-left {
+  width: 240px;
+  height: 240px;
+  left: -70px;
+  bottom: 80px;
+  background: radial-gradient(circle, rgba(255, 161, 26, 0.22) 0%, rgba(255, 161, 26, 0.02) 72%);
+}
+
+.brand-orb-right {
+  width: 320px;
+  height: 320px;
+  right: -100px;
+  top: -40px;
+  background: radial-gradient(circle, rgba(28, 154, 118, 0.2) 0%, rgba(28, 154, 118, 0.02) 72%);
+}
+
+/* Saverly Theme - Buttons */
+.btn-primary {
+  @apply bg-[#1C9A76] hover:bg-[#14765A] text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+}
+
+.btn-secondary {
+  @apply bg-[#FFA11A] hover:bg-[#E18C07] text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+}
+
+.btn-outline-primary {
+  @apply border-2 border-[#1C9A76] text-[#1C9A76] hover:bg-[#E6F6F0] font-semibold py-2 px-4 rounded-lg transition-colors;
+}
+
+/* Text Colors */
+.text-primary { @apply text-[#1C9A76]; }
+.text-secondary { @apply text-[#FFA11A]; }
+
+/* Background Colors */
+.bg-primary-faded { @apply bg-[#E6F6F0]; }
+.bg-secondary-faded { @apply bg-[#FFF4E5]; }
+.border-primary { @apply border-[#CFE5DE]; }
+
+/* Cards and Surfaces */
+.card {
+  @apply bg-white rounded-xl shadow-sm border border-[#E0F5F2];
+}
+
+/* Badge Colors */
+.badge-primary { @apply bg-[#E6F6F0] text-[#1C9A76]; }
+.badge-secondary { @apply bg-[#FFF4E5] text-[#FFA11A]; }
+.badge-success { @apply bg-[#E6F6F0] text-[#1C9A76]; }
+.badge-warning { @apply bg-[#FFF4E5] text-[#FFA11A]; }
+
+/* Link Colors */
+a { @apply text-[#1C9A76] hover:text-[#14765A] transition-colors; }
+
+/* Input Focus */
+input:focus, textarea:focus, select:focus {
+  @apply border-[#1C9A76] ring-2 ring-[#E6F6F0];
+}
