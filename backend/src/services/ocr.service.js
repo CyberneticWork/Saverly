@@ -265,6 +265,7 @@ async function extractWithTesseract(imagePath) {
             logger.debug(`OCR progress (${variant.name}): ${Math.round(m.progress * 100)}%`);
           }
         },
+        langPath: path.join(__dirname, '../../'), // use bundled eng.traineddata + sin.traineddata
         tessedit_pageseg_mode: variant.psm,
         preserve_interword_spaces: '1',
       });
