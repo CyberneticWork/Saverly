@@ -54,10 +54,16 @@ export default function InvoiceScanScreen({ navigation }) {
         name: `receipt_${Date.now()}.jpg`,
       });
       const res = await invoicesAPI.scan(formData);
-      const { invoiceId } = res.data.data;
+      const payload = res?.data?.data || res?.data || {};
+      const invoiceId = payload.invoiceId || payload.id || payload?.invoice?.id;
+
+      if (!invoiceId) {
+        throw new Error('Unexpected scan response from server.');
+      }
+
       navigation.replace('InvoiceReview', { invoiceId });
     } catch (err) {
-      Alert.alert('Upload failed', err?.response?.data?.message || 'Please try again.');
+      Alert.alert('Upload failed', err?.response?.data?.message || err?.message || 'Please try again.');
     } finally {
       setIsUploading(false);
     }

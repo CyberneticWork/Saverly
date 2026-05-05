@@ -9,7 +9,7 @@ import { invoicesAPI } from '../../services/api';
 import { colors, typography, shadows } from '../../theme';
 
 export default function InvoiceReviewScreen({ navigation, route }) {
-  const { invoiceId } = route.params;
+  const invoiceId = route?.params?.invoiceId;
   const [invoice, setInvoice] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -18,6 +18,12 @@ export default function InvoiceReviewScreen({ navigation, route }) {
   const pollRef = React.useRef(null);
 
   useEffect(() => {
+    if (!invoiceId) {
+      Alert.alert('Error', 'Could not load invoice. Missing invoice ID.');
+      navigation.goBack();
+      return undefined;
+    }
+
     loadInvoice();
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, [invoiceId]);
@@ -25,7 +31,13 @@ export default function InvoiceReviewScreen({ navigation, route }) {
   const loadInvoice = async (attempt = 0) => {
     try {
       const res = await invoicesAPI.getById(invoiceId);
-      const data = res.data.data;
+      const payload = res?.data?.data || res?.data?.invoice || res?.data || {};
+      const data = payload?.invoice || payload;
+
+      if (!data || typeof data !== 'object') {
+        throw new Error('Unexpected invoice response from server.');
+      }
+
       // If still processing, poll every 3s (up to 30s)
       if (data.status === 'PROCESSING' && attempt < 10) {
         setIsProcessing(true);
@@ -36,8 +48,8 @@ export default function InvoiceReviewScreen({ navigation, route }) {
       setIsProcessing(false);
       setInvoice(data);
       setItems(data.items || []);
-    } catch {
-      Alert.alert('Error', 'Could not load invoice.');
+    } catch (err) {
+      Alert.alert('Error', err?.response?.data?.message || err?.message || 'Could not load invoice.');
       navigation.goBack();
     } finally {
       setIsLoading(false);

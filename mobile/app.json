@@ -36,7 +36,8 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "VIBRATE",
-        "RECEIVE_BOOT_COMPLETED"
+        "RECEIVE_BOOT_COMPLETED",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
@@ -67,7 +68,10 @@
     ],
     "extra": {
       "apiUrl": "https://apisaverly.cyberneticde.site/api",
-      "googleMapsKey": ""
+      "googleMapsKey": "",
+      "eas": {
+        "projectId": "8350968f-184b-4963-b2c5-26018fe1fe45"
+      }
     }
   }
 }
