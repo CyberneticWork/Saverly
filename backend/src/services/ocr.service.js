@@ -69,6 +69,34 @@ async function extractInvoiceData(imagePath) {
     rawText = await extractWithTesseract(imagePath);
   }
 
+  // If Gemini returned structured JSON, use it directly without regex parsing
+  if (provider === 'gemini') {
+    try {
+      const jsonStr = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+      const structured = JSON.parse(jsonStr);
+      if (structured._geminiStructured && Array.isArray(structured.items)) {
+        logger.info(`Gemini structured parse: ${structured.items.length} items`);
+        const parsed = {
+          storeName: structured.storeName || null,
+          date: structured.date || null,
+          items: structured.items.map(item => ({
+            name: String(item.name || '').trim(),
+            quantity: Number(item.quantity) || 1,
+            unitPrice: Number(item.unitPrice) || 0,
+            totalPrice: Number(item.totalPrice) || Number(item.unitPrice) || 0,
+            unit: item.unit || null,
+          })).filter(item => item.name.length >= 2), // keep all named items; user can fix prices
+          subtotal: Number(structured.subtotal) || null,
+          tax: Number(structured.tax) || null,
+          total: Number(structured.total) || null,
+        };
+        return { rawText: jsonStr, parsed, provider };
+      }
+    } catch (_) {
+      // Not valid JSON — fall through to regex parser below
+    }
+  }
+
   logger.info(`OCR raw text (${rawText.length} chars):\n${rawText}`);
   const parsed = parseReceiptText(rawText);
   logger.info(`OCR provider ${provider}, parsed ${parsed.items.length} items`);
@@ -77,24 +105,54 @@ async function extractInvoiceData(imagePath) {
 
 /**
  * Gemini OCR via Google Generative Language API.
- * Useful when no dedicated OCR endpoint is available.
+ * Returns structured JSON with store info and line items directly — avoids
+ * fragile regex parsing on noisy receipt text.
  */
 async function extractWithGemini(imagePath) {
   const apiKey = process.env.GEMINI_API_KEY;
   const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
-  const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '30000', 10);
+  const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '45000', 10);
 
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is required for Gemini OCR');
   }
 
   const imageBase64 = fs.readFileSync(imagePath).toString('base64');
-  const prompt = [
-    'You are an OCR engine for Sri Lankan grocery receipts written in English and/or Sinhala (සිංහල).',
-    'Return only the extracted plain text.',
-    'Preserve all Sinhala script exactly as-is and keep original line breaks.',
-    'Do not translate, summarise, or return markdown or JSON.',
-  ].join(' ');
+
+  // Detect actual image MIME type from file magic bytes rather than trusting the extension
+  let mimeType = 'image/jpeg';
+  try {
+    const meta = await sharp(imagePath).metadata();
+    if (meta.format === 'png') mimeType = 'image/png';
+    else if (meta.format === 'webp') mimeType = 'image/webp';
+    else if (meta.format === 'gif') mimeType = 'image/gif';
+  } catch (_) { /* keep jpeg default */ }
+
+  const prompt = `You are a receipt parser for Sri Lankan grocery/supermarket receipts.
+Analyse the receipt image and extract all line items, store name, date and totals.
+
+Return ONLY valid JSON in this exact format (no markdown, no extra text, no code fences):
+{
+  "storeName": "store name or null",
+  "date": "YYYY-MM-DD or null",
+  "items": [
+    { "name": "product name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "unit or null" }
+  ],
+  "subtotal": 0.00,
+  "tax": 0.00,
+  "total": 0.00
+}
+
+Rules:
+- Include EVERY product line item visible on the receipt.
+- Skip summary lines (Total, VAT, NBT, Discount, Cash, Change, Rounding, etc.) — put those in the top-level fields only.
+- NEVER use null for numeric fields — always use 0 if unknown.
+- Use null only for string fields (storeName, date, unit) when not visible.
+- quantity defaults to 1 if not shown.
+- unitPrice: price per single unit. totalPrice: quantity × unitPrice. If only one price shown, use it for both.
+- All prices are plain numbers in LKR without currency symbol.
+- Product names in English; transliterate or translate Sinhala names.
+- If a price is partially visible or unclear, make your best estimate rather than returning 0.`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const response = await axios.post(
@@ -104,33 +162,41 @@ async function extractWithGemini(imagePath) {
         {
           parts: [
             { text: prompt },
-            {
-              inline_data: {
-                mime_type: 'image/jpeg',
-                data: imageBase64,
-              },
-            },
+            { inline_data: { mime_type: mimeType, data: imageBase64 } },
           ],
         },
       ],
+      generationConfig: { temperature: 0, topP: 1 },
     },
     {
-      timeout: Number.isFinite(timeoutMs) ? timeoutMs : 30000,
+      timeout: Number.isFinite(timeoutMs) ? timeoutMs : 45000,
       headers: { 'Content-Type': 'application/json' },
     }
   );
 
   const parts = response?.data?.candidates?.[0]?.content?.parts || [];
-  const text = parts
+  const raw = parts
     .map(p => (typeof p?.text === 'string' ? p.text : ''))
     .join('\n')
     .trim();
 
-  if (!text) {
-    throw new Error('Gemini OCR returned empty text');
+  if (!raw) throw new Error('Gemini OCR returned empty response');
+
+  // Strip markdown code fences if model wraps output anyway
+  const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    // Gemini returned plain text rather than JSON — fall back to text path
+    logger.warn('Gemini did not return valid JSON, using raw text for regex parsing');
+    return raw;
   }
 
-  return text;
+  // Attach structured data for direct use in processOCR so regex parser is bypassed
+  parsed._geminiStructured = true;
+  return JSON.stringify(parsed);
 }
 
 /**
