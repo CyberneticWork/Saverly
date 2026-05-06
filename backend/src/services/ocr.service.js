@@ -117,16 +117,36 @@ async function extractWithGemini(imagePath) {
     throw new Error('GEMINI_API_KEY is required for Gemini OCR');
   }
 
-  const imageBase64 = fs.readFileSync(imagePath).toString('base64');
-
-  // Detect actual image MIME type from file magic bytes rather than trusting the extension
+  // ── Resize image before encoding ──────────────────────────────────────────
+  // Phone camera photos can be 10-15 MB. Loading them fully into RAM as base64
+  // (~20 MB string) causes OOM on small VPS instances and crashes the server.
+  // Gemini only needs ~1600 px on the long edge to read receipt text accurately.
+  let imageBase64;
   let mimeType = 'image/jpeg';
+  const tmpResized = path.join(os.tmpdir(), `gemini_resize_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`);
+  let usedTmp = false;
+
   try {
-    const meta = await sharp(imagePath).metadata();
-    if (meta.format === 'png') mimeType = 'image/png';
-    else if (meta.format === 'webp') mimeType = 'image/webp';
-    else if (meta.format === 'gif') mimeType = 'image/gif';
-  } catch (_) { /* keep jpeg default */ }
+    await sharp(imagePath)
+      .rotate()                          // auto-rotate from EXIF
+      .resize({ width: 1600, height: 2400, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 88 })
+      .toFile(tmpResized);
+    imageBase64 = fs.readFileSync(tmpResized).toString('base64');
+    mimeType = 'image/jpeg';
+    usedTmp = true;
+  } catch (resizeErr) {
+    logger.warn('Gemini image resize failed, using original:', resizeErr.message);
+    imageBase64 = fs.readFileSync(imagePath).toString('base64');
+    // Detect MIME from original
+    try {
+      const meta = await sharp(imagePath).metadata();
+      if (meta.format === 'png') mimeType = 'image/png';
+      else if (meta.format === 'webp') mimeType = 'image/webp';
+    } catch (_) { /* keep jpeg */ }
+  } finally {
+    if (usedTmp) { try { fs.unlinkSync(tmpResized); } catch (_) {} }
+  }
 
   const prompt = `You are a receipt parser for Sri Lankan grocery/supermarket receipts.
 Analyse the receipt image and extract all line items, store name, date and totals.
@@ -149,30 +169,48 @@ Rules:
 - NEVER use null for numeric fields — always use 0 if unknown.
 - Use null only for string fields (storeName, date, unit) when not visible.
 - quantity defaults to 1 if not shown.
-- unitPrice: price per single unit. totalPrice: quantity × unitPrice. If only one price shown, use it for both.
+- unitPrice: price per single unit. totalPrice: quantity x unitPrice. If only one price shown, use it for both.
 - All prices are plain numbers in LKR without currency symbol.
 - Product names in English; transliterate or translate Sinhala names.
 - If a price is partially visible or unclear, make your best estimate rather than returning 0.`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const response = await axios.post(
-    url,
-    {
-      contents: [
+
+  // ── Call Gemini with retry on 503 / 429 ────────────────────────────────────
+  let response;
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      response = await axios.post(
+        url,
         {
-          parts: [
-            { text: prompt },
-            { inline_data: { mime_type: mimeType, data: imageBase64 } },
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: imageBase64 } },
+              ],
+            },
           ],
+          generationConfig: { temperature: 0, topP: 1 },
         },
-      ],
-      generationConfig: { temperature: 0, topP: 1 },
-    },
-    {
-      timeout: Number.isFinite(timeoutMs) ? timeoutMs : 45000,
-      headers: { 'Content-Type': 'application/json' },
+        {
+          timeout: Number.isFinite(timeoutMs) ? timeoutMs : 45000,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+      break; // success
+    } catch (err) {
+      const status = err?.response?.status;
+      if ((status === 503 || status === 429) && attempt < maxAttempts) {
+        const delay = attempt * 3000; // 3s, 6s
+        logger.warn(`Gemini returned ${status}, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err; // rethrow after max retries or non-retriable error
     }
-  );
+  }
 
   const parts = response?.data?.candidates?.[0]?.content?.parts || [];
   const raw = parts
