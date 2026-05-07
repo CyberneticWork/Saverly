@@ -10,7 +10,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apisaverly.cyberneticde.site/api"
+        "EXPO_PUBLIC_API_URL": "https://apisaverly.cyberneticde.site/api",
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyD5cJ15r22wO3m4k80M9RznHze3Fz2Gve0",
+        "EXPO_PUBLIC_GEMINI_MODEL": "gemini-2.0-flash-lite"
       }
     },
     "production": {
@@ -18,7 +20,9 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apisaverly.cyberneticde.site/api"
+        "EXPO_PUBLIC_API_URL": "https://apisaverly.cyberneticde.site/api",
+        "EXPO_PUBLIC_GEMINI_API_KEY": "AIzaSyD5cJ15r22wO3m4k80M9RznHze3Fz2Gve0",
+        "EXPO_PUBLIC_GEMINI_MODEL": "gemini-2.0-flash-lite"
       }
     }
   }
