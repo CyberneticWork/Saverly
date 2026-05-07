@@ -128,9 +128,9 @@ export const invoicesAPI = {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   }),
-  // New: send OCR text extracted on-device — tiny JSON payload, no image upload
+  // Send OCR text extracted on-device (legacy path, kept for fallback)
   scanText: (data) => api.post('/invoices/scan-text', data, { timeout: 60000 }),
-  // Best: send pre-parsed structured JSON from Gemini Vision on device — no server OCR needed
+  // New: send pre-parsed structured JSON from on-device Gemini — server just saves, no AI needed
   scanStructured: (data) => api.post('/invoices/scan-structured', data, { timeout: 30000 }),
   list: (params) => api.get('/invoices', { params }),
   getById: (id) => api.get(`/invoices/${id}`),

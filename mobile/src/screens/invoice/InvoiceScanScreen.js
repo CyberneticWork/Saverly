@@ -12,46 +12,46 @@ import { CameraView, Camera } from 'expo-camera';
 import { invoicesAPI } from '../../services/api';
 import { colors, typography, shadows } from '../../theme';
 
-// ── On-device invoice parsing via Gemini Vision ───────────────────────────────
-// Sends the image directly to Gemini and gets structured JSON back in ONE step.
-// Far more accurate than extract-text-then-parse for any document type.
+// ── On-device structured extraction via Gemini Vision ───────────────────────
+// One single Gemini call returns JSON directly — no text→parse round-trip needed.
 async function extractStructuredWithGemini(base64Image) {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
   if (!apiKey) throw new Error('OCR service not configured. Contact support.');
 
-  const prompt = `You are an expert parser for bills, invoices and receipts of ANY type and format.
-This may be: a thermal grocery receipt, printed A4/B5 invoice, restaurant bill, hotel invoice, handwritten bill, pharmacy receipt, hardware store bill, utility bill, or any other purchase document.
-The image may have low contrast, fading, shadows, wrinkles, skew, glare, or handwriting.
+  const prompt = `You are an expert invoice/receipt parser for Sri Lanka and South Asia.
+This image may be ANY document type: thermal supermarket receipt, restaurant bill, A4/B5 printed invoice, handwritten bill, hotel invoice, pharmacy receipt, hardware store bill, etc.
+It may contain English, Sinhala, Tamil, or mixed languages. Text may be faded, skewed, handwritten, or in table columns.
 
-Analyse the document image carefully and extract all purchased items/services.
+IMPORTANT receipt patterns to handle:
+- Two-line items: item name on one line, prices (qty/MRP/rate/amount) on the NEXT line — link them together
+- Inline items: "Item Name  qty x price = total" all on one line
+- Column tables: QTY | DESCRIPTION | RATE | AMOUNT or ITEMS | QTY | MRP | RATE | AMOUNT
+- Sinhala/Tamil product names: transliterate to English
+- Handwritten amounts like "400/-" mean 400.00
+- Prices with commas like "1,300.00" are normal numbers
+- "*" separator between name and price on same line
 
-Return ONLY valid JSON in this exact format (no markdown, no code fences, no extra text):
+Return ONLY valid JSON (no markdown, no code fences, no explanation):
 {
-  "storeName": "shop or company name, or null",
+  "storeName": "shop/company name or null",
   "date": "YYYY-MM-DD or null",
   "items": [
-    { "name": "product or service name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": null }
+    { "name": "product or service name in English", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": null }
   ],
   "subtotal": 0.00,
   "tax": 0.00,
-  "total": 0.00,
-  "currency": "LKR"
+  "total": 0.00
 }
 
 Rules:
-- Include EVERY purchased item or service line — even if name is partially visible or handwritten.
-- Skip non-item lines: grand total, subtotal, VAT/tax/NBT summary rows, discount summary, cash, change, rounding, service charge totals, loyalty points, page numbers.
-- Service charge and tax amounts go in the top-level "tax" field, NOT as items.
-- NEVER use null for numeric fields — use 0 if unknown.
-- Use null only for string fields (storeName, date, unit) when genuinely not visible.
-- quantity defaults to 1 if not shown.
-- unitPrice = price per single unit. totalPrice = quantity x unitPrice. If only one price column, use it for both.
-- For weighted items (e.g. 0.55 kg), quantity = weight, unit = "kg".
-- All prices as plain numbers without currency symbol.
-- Item names in English — transliterate or translate Sinhala/Tamil/other language names.
-- For handwritten bills, interpret cursive or unclear writing as best as possible.
-- If a line is clearly a purchased item but prices are missing, include it with price 0.`;
+- Include EVERY purchased item/service line — even if name is unclear, include best guess.
+- Two-line format: combine the name from line N with prices from line N+1 as ONE item.
+- Skip footer-only lines: Grand Total, Sub Total, Service Charge, VAT, NBT, Discount, Cash, Change, Rounding, Points, Thank You.
+- NEVER null for numbers — use 0 if unknown.
+- quantity defaults to 1. unitPrice = price per unit. totalPrice = qty × unitPrice.
+- Prices in plain LKR numbers, no symbols.
+- If only one price column visible, use it for both unitPrice and totalPrice.`;
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -63,7 +63,7 @@ Rules:
           { text: prompt },
           { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
         ]}],
-        generationConfig: { temperature: 0 },
+        generationConfig: { temperature: 0, maxOutputTokens: 4096 },
       }),
     }
   );
@@ -74,16 +74,20 @@ Rules:
   }
 
   const data = await response.json();
-  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  if (!rawText) throw new Error('No data could be extracted from this document. Please try a clearer photo.');
+  const raw = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  if (!raw) throw new Error('No data returned from OCR service.');
 
-  const jsonStr = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  // Strip any accidental code fences
+  const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
   const parsed = JSON.parse(jsonStr);
 
-  if (!Array.isArray(parsed.items)) throw new Error('Could not parse document structure. Please try again.');
-  if (parsed.items.length === 0) throw new Error('No items found. Please ensure the image shows the full document clearly.');
-
+  if (!Array.isArray(parsed.items)) throw new Error('Invalid OCR response structure.');
   return parsed;
+}
+
+function extractInvoiceIdFromResponse(res) {
+  const payload = res?.data?.data || res?.data || {};
+  return payload.invoiceId || payload.id || payload?.invoice?.id || null;
 }
 
 export default function InvoiceScanScreen({ navigation }) {
@@ -124,22 +128,21 @@ export default function InvoiceScanScreen({ navigation }) {
     setIsUploading(true);
     setUploadStatus('Preparing image…');
     try {
-      // Step 1: Resize image (keep quality high for faded prints)
-      const compressed = await ImageManipulator.manipulateAsync(
+      // Resize to 1600px — enough detail for Gemini, keeps base64 size manageable
+      const img = await ImageManipulator.manipulateAsync(
         selectedImage,
         [{ resize: { width: 1600 } }],
-        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
 
-      // Step 2: Send image to Gemini — get structured JSON back directly (one step)
-      setUploadStatus('Reading document…');
-      const parsedData = await extractStructuredWithGemini(compressed.base64);
+      // Single Gemini call → structured JSON directly (no text→re-parse needed)
+      setUploadStatus('Reading invoice…');
+      const structured = await extractStructuredWithGemini(img.base64);
 
-      // Step 3: Send the structured JSON to server (tiny payload, no image, no server OCR needed)
-      setUploadStatus('Saving invoice…');
-      const res = await invoicesAPI.scanStructured(parsedData);
-      const payload = res?.data?.data || res?.data || {};
-      const invoiceId = payload.invoiceId || payload.id || payload?.invoice?.id;
+      // Send pre-parsed data straight to server — server just saves, no AI needed
+      setUploadStatus('Saving…');
+      const res = await invoicesAPI.scanStructured(structured);
+      const invoiceId = extractInvoiceIdFromResponse(res);
 
       if (!invoiceId) throw new Error('Unexpected response from server.');
       navigation.replace('InvoiceReview', { invoiceId });
