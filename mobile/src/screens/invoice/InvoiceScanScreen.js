@@ -15,36 +15,50 @@ import { colors, typography, shadows } from '../../theme';
 // ── On-device OCR via Gemini Vision (avoids large image uploads) ──────────────
 async function extractTextWithGemini(base64Image) {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-  const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
   if (!apiKey) throw new Error('OCR service not configured. Contact support.');
 
-  const prompt = `Extract ALL text from this grocery receipt image exactly as it appears.
-Include every line: store name, date, product names, quantities, prices, totals, and all other visible text.
-Output plain text only, preserving the layout as closely as possible.
-Do NOT summarise or interpret — just extract the raw text.`;
+  const prompt = `You are an expert OCR system specialising in Sri Lankan bills, invoices and receipts of any format.
+This may be a thermal receipt, A4/B5 printed invoice, handwritten bill, supermarket printout, pharmacy bill, hardware store receipt, restaurant bill, or any other purchase document.
+The image may have low contrast, fading, shadows, wrinkles, skew, glare, or partial blur.
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { text: prompt },
-          { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
-        ]}],
-        generationConfig: { temperature: 0 },
-      }),
+Extract ALL visible text from this document exactly as it appears.
+Include every line without exception: shop/company name, address, phone, date, time, invoice number, product/service names, quantities, units, unit prices, line totals, subtotal, discounts, VAT/NBT/tax, grand total, payment method, cashier info, footer notes — everything.
+Preserve the original layout and line breaks as closely as possible.
+If a character is unclear, make your best guess rather than skipping it.
+Output plain text only. Do NOT summarise, interpret, or add any explanation.`;
+
+  const makeRequest = async (imgData) => {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: prompt },
+            { inline_data: { mime_type: 'image/jpeg', data: imgData } },
+          ]}],
+          generationConfig: { temperature: 0 },
+        }),
+      }
+    );
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `OCR failed (${response.status})`);
     }
-  );
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  };
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `OCR failed (${response.status})`);
+  // First attempt with compressed image
+  let text = await makeRequest(base64Image);
+
+  // If empty result, retry with higher quality image
+  if (!text || text.trim().length < 20) {
+    throw new Error('Could not read text from this receipt. Please ensure the image is clear and well-lit, then try again.');
   }
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  if (!text) throw new Error('No text could be extracted from the receipt.');
+
   return text;
 }
 
@@ -86,11 +100,11 @@ export default function InvoiceScanScreen({ navigation }) {
     setIsUploading(true);
     setUploadStatus('Preparing image…');
     try {
-      // Step 1: Compress image on device → reduces to ~200-400 KB
+      // Step 1: Resize image (keep quality high for faded thermal receipts)
       const compressed = await ImageManipulator.manipulateAsync(
         selectedImage,
-        [{ resize: { width: 1024 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        [{ resize: { width: 1600 } }],
+        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
 
       // Step 2: Run OCR on device via Gemini Vision — sends compressed image to Gemini,

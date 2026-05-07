@@ -148,15 +148,15 @@ async function extractWithGemini(imagePath) {
     if (usedTmp) { try { fs.unlinkSync(tmpResized); } catch (_) {} }
   }
 
-  const prompt = `You are a receipt parser for Sri Lankan grocery/supermarket receipts.
-Analyse the receipt image and extract all line items, store name, date and totals.
+  const prompt = `You are an expert parser for Sri Lankan bills, invoices and receipts of ANY format — thermal receipts, A4/B5 printed invoices, handwritten bills, supermarket printouts, pharmacy bills, hardware store receipts, restaurant bills, utility bills, or any other purchase document.
+Analyse the document image and extract all purchased items/services, store details, date and totals.
 
 Return ONLY valid JSON in this exact format (no markdown, no extra text, no code fences):
 {
-  "storeName": "store name or null",
+  "storeName": "shop/company name or null",
   "date": "YYYY-MM-DD or null",
   "items": [
-    { "name": "product name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "unit or null" }
+    { "name": "product or service name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "unit or null" }
   ],
   "subtotal": 0.00,
   "tax": 0.00,
@@ -164,14 +164,15 @@ Return ONLY valid JSON in this exact format (no markdown, no extra text, no code
 }
 
 Rules:
-- Include EVERY product line item visible on the receipt.
-- Skip summary lines (Total, VAT, NBT, Discount, Cash, Change, Rounding, etc.) — put those in the top-level fields only.
+- Include EVERY purchased item or service line visible on the document.
+- Skip non-item lines only: grand total, subtotal, VAT/NBT/tax summary, discount summary, cash tendered, change, rounding, loyalty points.
 - NEVER use null for numeric fields — always use 0 if unknown.
 - Use null only for string fields (storeName, date, unit) when not visible.
 - quantity defaults to 1 if not shown.
 - unitPrice: price per single unit. totalPrice: quantity x unitPrice. If only one price shown, use it for both.
 - All prices are plain numbers in LKR without currency symbol.
-- Product names in English; transliterate or translate Sinhala names.
+- Item names in English; transliterate or translate Sinhala/Tamil names.
+- For service invoices (repairs, medical, etc.), treat each service line as an item.
 - If a price is partially visible or unclear, make your best estimate rather than returning 0.`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -1574,20 +1575,21 @@ function parseReceiptText(text) {
  */
 async function extractItemsFromText(rawText) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '45000', 10);
 
   if (apiKey) {
     try {
-      const prompt = `You are a receipt parser for Sri Lankan grocery/supermarket receipts.
-The following is raw OCR text extracted from a receipt image. Parse it into structured data.
+      const prompt = `You are an expert parser for Sri Lankan bills, invoices and receipts of ANY format — thermal receipts, A4/B5 printed invoices, handwritten bills, supermarket printouts, pharmacy bills, hardware store receipts, restaurant bills, utility bills, or any other purchase document.
+The following is raw OCR text that may contain errors, garbled characters, missing spaces, or Sinhala/Tamil transliterations due to image quality issues.
+Use your knowledge of Sri Lankan products, services, brands, and pricing to correct obvious OCR errors and parse into structured data.
 
 Return ONLY valid JSON in this exact format (no markdown, no code fences):
 {
-  "storeName": "store name or null",
+  "storeName": "shop/company name or null",
   "date": "YYYY-MM-DD or null",
   "items": [
-    { "name": "product name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "unit or null" }
+    { "name": "product or service name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "unit or null" }
   ],
   "subtotal": 0.00,
   "tax": 0.00,
@@ -1595,12 +1597,15 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
 }
 
 Rules:
-- Include EVERY product line item. Skip summary lines (Total, VAT, Discount, Cash, Change, Rounding).
+- Include EVERY purchased item or service line, even if the name looks garbled — make your best guess at the name.
+- Skip non-item lines only: grand total, subtotal, VAT/NBT/tax summary, discount summary, cash tendered, change, rounding, loyalty points, page numbers.
 - NEVER use null for numeric fields — always use 0 if unknown.
 - quantity defaults to 1 if not shown.
-- unitPrice: price per single unit. totalPrice: quantity × unitPrice.
+- unitPrice: price per single unit. totalPrice: quantity × unitPrice. If only one price shown, use it for both.
 - All prices in LKR as plain numbers (no currency symbol).
-- Product names in English.
+- Item/product names in English; transliterate or translate Sinhala/Tamil names.
+- If a line looks like a purchased item but prices are missing or unclear, still include it with price 0.
+- For service invoices (e.g. repairs, medical), treat each service line as an item.
 
 Raw OCR text:
 ---
