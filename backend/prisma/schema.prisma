@@ -260,7 +260,7 @@ model Invoice {
   id            String        @id @default(cuid())
   userId        String
   supermarketId String?
-  imageUrl      String
+  imageUrl      String?
   rawOcrText    String?  @db.Text
   parsedData    Json?
   status        InvoiceStatus @default(PENDING)
