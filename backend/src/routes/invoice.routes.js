@@ -13,6 +13,8 @@ router.post('/scan',
 );
 // New: receive raw OCR text from mobile device (no image upload)
 router.post('/scan-text', invoiceCtrl.scanFromText);
+// Best: receive pre-parsed structured JSON from Gemini Vision on mobile (no server OCR)
+router.post('/scan-structured', invoiceCtrl.scanStructured);
 // Scan a plain shopping list image (no user invoice record created)
 router.post('/scan-list',
   uploadTo('invoices'),

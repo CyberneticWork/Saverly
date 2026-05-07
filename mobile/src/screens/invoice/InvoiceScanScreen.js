@@ -12,54 +12,78 @@ import { CameraView, Camera } from 'expo-camera';
 import { invoicesAPI } from '../../services/api';
 import { colors, typography, shadows } from '../../theme';
 
-// ── On-device OCR via Gemini Vision (avoids large image uploads) ──────────────
-async function extractTextWithGemini(base64Image) {
+// ── On-device invoice parsing via Gemini Vision ───────────────────────────────
+// Sends the image directly to Gemini and gets structured JSON back in ONE step.
+// Far more accurate than extract-text-then-parse for any document type.
+async function extractStructuredWithGemini(base64Image) {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
   const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
   if (!apiKey) throw new Error('OCR service not configured. Contact support.');
 
-  const prompt = `You are an expert OCR system specialising in Sri Lankan bills, invoices and receipts of any format.
-This may be a thermal receipt, A4/B5 printed invoice, handwritten bill, supermarket printout, pharmacy bill, hardware store receipt, restaurant bill, or any other purchase document.
-The image may have low contrast, fading, shadows, wrinkles, skew, glare, or partial blur.
+  const prompt = `You are an expert parser for bills, invoices and receipts of ANY type and format.
+This may be: a thermal grocery receipt, printed A4/B5 invoice, restaurant bill, hotel invoice, handwritten bill, pharmacy receipt, hardware store bill, utility bill, or any other purchase document.
+The image may have low contrast, fading, shadows, wrinkles, skew, glare, or handwriting.
 
-Extract ALL visible text from this document exactly as it appears.
-Include every line without exception: shop/company name, address, phone, date, time, invoice number, product/service names, quantities, units, unit prices, line totals, subtotal, discounts, VAT/NBT/tax, grand total, payment method, cashier info, footer notes — everything.
-Preserve the original layout and line breaks as closely as possible.
-If a character is unclear, make your best guess rather than skipping it.
-Output plain text only. Do NOT summarise, interpret, or add any explanation.`;
+Analyse the document image carefully and extract all purchased items/services.
 
-  const makeRequest = async (imgData) => {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { text: prompt },
-            { inline_data: { mime_type: 'image/jpeg', data: imgData } },
-          ]}],
-          generationConfig: { temperature: 0 },
-        }),
-      }
-    );
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `OCR failed (${response.status})`);
+Return ONLY valid JSON in this exact format (no markdown, no code fences, no extra text):
+{
+  "storeName": "shop or company name, or null",
+  "date": "YYYY-MM-DD or null",
+  "items": [
+    { "name": "product or service name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": null }
+  ],
+  "subtotal": 0.00,
+  "tax": 0.00,
+  "total": 0.00,
+  "currency": "LKR"
+}
+
+Rules:
+- Include EVERY purchased item or service line — even if name is partially visible or handwritten.
+- Skip non-item lines: grand total, subtotal, VAT/tax/NBT summary rows, discount summary, cash, change, rounding, service charge totals, loyalty points, page numbers.
+- Service charge and tax amounts go in the top-level "tax" field, NOT as items.
+- NEVER use null for numeric fields — use 0 if unknown.
+- Use null only for string fields (storeName, date, unit) when genuinely not visible.
+- quantity defaults to 1 if not shown.
+- unitPrice = price per single unit. totalPrice = quantity x unitPrice. If only one price column, use it for both.
+- For weighted items (e.g. 0.55 kg), quantity = weight, unit = "kg".
+- All prices as plain numbers without currency symbol.
+- Item names in English — transliterate or translate Sinhala/Tamil/other language names.
+- For handwritten bills, interpret cursive or unclear writing as best as possible.
+- If a line is clearly a purchased item but prices are missing, include it with price 0.`;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: prompt },
+          { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
+        ]}],
+        generationConfig: { temperature: 0 },
+      }),
     }
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  };
+  );
 
-  // First attempt with compressed image
-  let text = await makeRequest(base64Image);
-
-  // If empty result, retry with higher quality image
-  if (!text || text.trim().length < 20) {
-    throw new Error('Could not read text from this receipt. Please ensure the image is clear and well-lit, then try again.');
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OCR failed (${response.status})`);
   }
 
-  return text;
+  const data = await response.json();
+  const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!rawText) throw new Error('No data could be extracted from this document. Please try a clearer photo.');
+
+  const jsonStr = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  const parsed = JSON.parse(jsonStr);
+
+  if (!Array.isArray(parsed.items)) throw new Error('Could not parse document structure. Please try again.');
+  if (parsed.items.length === 0) throw new Error('No items found. Please ensure the image shows the full document clearly.');
+
+  return parsed;
 }
 
 export default function InvoiceScanScreen({ navigation }) {
@@ -100,21 +124,20 @@ export default function InvoiceScanScreen({ navigation }) {
     setIsUploading(true);
     setUploadStatus('Preparing image…');
     try {
-      // Step 1: Resize image (keep quality high for faded thermal receipts)
+      // Step 1: Resize image (keep quality high for faded prints)
       const compressed = await ImageManipulator.manipulateAsync(
         selectedImage,
         [{ resize: { width: 1600 } }],
         { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
 
-      // Step 2: Run OCR on device via Gemini Vision — sends compressed image to Gemini,
-      //         returns raw receipt text (NOT uploaded to our server)
-      setUploadStatus('Reading receipt…');
-      const ocrText = await extractTextWithGemini(compressed.base64);
+      // Step 2: Send image to Gemini — get structured JSON back directly (one step)
+      setUploadStatus('Reading document…');
+      const parsedData = await extractStructuredWithGemini(compressed.base64);
 
-      // Step 3: Send only the extracted TEXT to our server (tiny JSON payload, no image)
+      // Step 3: Send the structured JSON to server (tiny payload, no image, no server OCR needed)
       setUploadStatus('Saving invoice…');
-      const res = await invoicesAPI.scanText({ ocrText });
+      const res = await invoicesAPI.scanStructured(parsedData);
       const payload = res?.data?.data || res?.data || {};
       const invoiceId = payload.invoiceId || payload.id || payload?.invoice?.id;
 

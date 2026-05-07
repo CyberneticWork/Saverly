@@ -130,6 +130,8 @@ export const invoicesAPI = {
   }),
   // New: send OCR text extracted on-device — tiny JSON payload, no image upload
   scanText: (data) => api.post('/invoices/scan-text', data, { timeout: 60000 }),
+  // Best: send pre-parsed structured JSON from Gemini Vision on device — no server OCR needed
+  scanStructured: (data) => api.post('/invoices/scan-structured', data, { timeout: 30000 }),
   list: (params) => api.get('/invoices', { params }),
   getById: (id) => api.get(`/invoices/${id}`),
   confirm: (id, data) => api.put(`/invoices/${id}/confirm`, data),

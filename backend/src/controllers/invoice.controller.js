@@ -162,6 +162,51 @@ async function processTextOCR(invoiceId, rawText) {
   }
 }
 
+// Accept pre-parsed structured JSON sent by mobile (Gemini ran on device) — no server OCR needed
+exports.scanStructured = async (req, res, next) => {
+  try {
+    const { storeName, date, items, subtotal, tax, total, currency } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return next(createError(400, 'items array is required and must be non-empty.'));
+    }
+
+    const supermarket = storeName
+      ? await prisma.supermarket.findFirst({
+          where: { name: { contains: storeName } },
+        })
+      : null;
+
+    const invoice = await prisma.invoice.create({
+      data: {
+        userId: req.user.id,
+        imageUrl: '',
+        status: 'REVIEW',
+        supermarketId: supermarket?.id || null,
+        invoiceDate: date ? new Date(date) : null,
+        totalAmount: total || null,
+        parsedData: { storeName, date, items, subtotal, tax, total, currency, _ocrProvider: 'gemini-structured' },
+        processedAt: new Date(),
+      },
+    });
+
+    await prisma.invoiceItem.createMany({
+      data: items.map(item => ({
+        invoiceId: invoice.id,
+        productName: item.name,
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        totalPrice: item.totalPrice || item.unitPrice || 0,
+        unit: item.unit || null,
+      })),
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { invoiceId: invoice.id },
+    });
+  } catch (err) { next(err); }
+};
+
 exports.list = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
