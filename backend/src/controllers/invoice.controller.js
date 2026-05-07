@@ -103,7 +103,7 @@ exports.scanFromText = async (req, res, next) => {
     }
 
     const invoice = await prisma.invoice.create({
-      data: { userId: req.user.id, status: 'PROCESSING' },
+      data: { userId: req.user.id, imageUrl: '', status: 'PROCESSING' },
     });
 
     processTextOCR(invoice.id, ocrText.trim()).catch(err => {
