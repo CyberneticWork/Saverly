@@ -1564,8 +1564,93 @@ function parseReceiptText(text) {
   return result;
 }
 
+/**
+ * Parse raw OCR text (extracted on the mobile device) into structured invoice data.
+ * Uses Gemini to normalise the text rather than relying on fragile regex.
+ * Falls back to the regex parser if Gemini is unavailable or fails.
+ *
+ * @param {string} rawText - Plain receipt text extracted on the mobile device.
+ * @returns {{ storeName, date, items, subtotal, tax, total }}
+ */
+async function extractItemsFromText(rawText) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || '45000', 10);
+
+  if (apiKey) {
+    try {
+      const prompt = `You are a receipt parser for Sri Lankan grocery/supermarket receipts.
+The following is raw OCR text extracted from a receipt image. Parse it into structured data.
+
+Return ONLY valid JSON in this exact format (no markdown, no code fences):
+{
+  "storeName": "store name or null",
+  "date": "YYYY-MM-DD or null",
+  "items": [
+    { "name": "product name", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "unit or null" }
+  ],
+  "subtotal": 0.00,
+  "tax": 0.00,
+  "total": 0.00
+}
+
+Rules:
+- Include EVERY product line item. Skip summary lines (Total, VAT, Discount, Cash, Change, Rounding).
+- NEVER use null for numeric fields — always use 0 if unknown.
+- quantity defaults to 1 if not shown.
+- unitPrice: price per single unit. totalPrice: quantity × unitPrice.
+- All prices in LKR as plain numbers (no currency symbol).
+- Product names in English.
+
+Raw OCR text:
+---
+${rawText}
+---`;
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await axios.post(
+        url,
+        {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0, topP: 1 },
+        },
+        { timeout: Number.isFinite(timeoutMs) ? timeoutMs : 45000, headers: { 'Content-Type': 'application/json' } }
+      );
+
+      const geminiText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonStr = geminiText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+      const structured = JSON.parse(jsonStr);
+
+      if (Array.isArray(structured.items)) {
+        logger.info(`extractItemsFromText: Gemini parsed ${structured.items.length} items`);
+        return {
+          storeName: structured.storeName || null,
+          date: structured.date || null,
+          items: structured.items.map(item => ({
+            name: String(item.name || '').trim(),
+            quantity: Number(item.quantity) || 1,
+            unitPrice: Number(item.unitPrice) || 0,
+            totalPrice: Number(item.totalPrice) || Number(item.unitPrice) || 0,
+            unit: item.unit || null,
+          })).filter(item => item.name.length >= 2),
+          subtotal: Number(structured.subtotal) || null,
+          tax: Number(structured.tax) || null,
+          total: Number(structured.total) || null,
+        };
+      }
+    } catch (err) {
+      logger.warn('extractItemsFromText: Gemini failed, falling back to regex:', err.message);
+    }
+  }
+
+  // Fallback: use the existing regex parser on the raw text
+  logger.info('extractItemsFromText: using regex parser');
+  return parseReceiptText(rawText);
+}
+
 module.exports = {
   extractInvoiceData,
+  extractItemsFromText,
   _internals: {
     cleanOcrText,
     parseReceiptText,

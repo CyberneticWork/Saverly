@@ -123,10 +123,13 @@ export const shoppingListsAPI = {
 
 // ── Invoices ──────────────────────────────────────────────
 export const invoicesAPI = {
+  // Legacy image upload (kept for reference)
   scan: (formData) => api.post('/invoices/scan', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000, // OCR can be slow
+    timeout: 120000,
   }),
+  // New: send OCR text extracted on-device — tiny JSON payload, no image upload
+  scanText: (data) => api.post('/invoices/scan-text', data, { timeout: 60000 }),
   list: (params) => api.get('/invoices', { params }),
   getById: (id) => api.get(`/invoices/${id}`),
   confirm: (id, data) => api.put(`/invoices/${id}/confirm`, data),

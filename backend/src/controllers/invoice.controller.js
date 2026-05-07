@@ -90,6 +90,78 @@ async function processOCR(invoiceId, imagePath) {
   }
 }
 
+/**
+ * POST /invoices/scan-text
+ * Accepts raw OCR text extracted on the mobile device (no image upload).
+ * Parses the text server-side with Gemini, saves to DB, returns invoiceId.
+ */
+exports.scanFromText = async (req, res, next) => {
+  try {
+    const { ocrText } = req.body;
+    if (!ocrText || typeof ocrText !== 'string' || ocrText.trim().length < 10) {
+      return next(createError(400, 'ocrText is required and must be a non-empty string.'));
+    }
+
+    const invoice = await prisma.invoice.create({
+      data: { userId: req.user.id, status: 'PROCESSING' },
+    });
+
+    processTextOCR(invoice.id, ocrText.trim()).catch(err => {
+      console.error('Text OCR processing error:', err);
+    });
+
+    res.status(202).json({
+      success: true,
+      message: 'Receipt text received and being processed.',
+      data: { invoiceId: invoice.id },
+    });
+  } catch (err) { next(err); }
+};
+
+async function processTextOCR(invoiceId, rawText) {
+  try {
+    const parsed = await ocrService.extractItemsFromText(rawText);
+
+    const supermarket = parsed.storeName
+      ? await prisma.supermarket.findFirst({
+          where: { name: { contains: parsed.storeName } },
+        })
+      : null;
+
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        rawOcrText: rawText,
+        parsedData: { ...parsed, _ocrProvider: 'gemini-text' },
+        status: 'REVIEW',
+        supermarketId: supermarket?.id || null,
+        invoiceDate: parsed.date ? new Date(parsed.date) : null,
+        totalAmount: parsed.total || null,
+        processedAt: new Date(),
+      },
+    });
+
+    if (parsed.items && parsed.items.length > 0) {
+      await prisma.invoiceItem.createMany({
+        data: parsed.items.map(item => ({
+          invoiceId,
+          productName: item.name,
+          quantity: item.quantity || 1,
+          unitPrice: item.unitPrice || 0,
+          totalPrice: item.totalPrice || item.unitPrice || 0,
+          unit: item.unit || null,
+        })),
+      });
+    }
+  } catch (err) {
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { status: 'REVIEW', processedAt: new Date() },
+    }).catch(() => {});
+    throw err;
+  }
+}
+
 exports.list = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;

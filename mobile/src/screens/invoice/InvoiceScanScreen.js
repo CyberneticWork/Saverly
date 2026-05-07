@@ -7,15 +7,53 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { CameraView, Camera } from 'expo-camera';
 import { invoicesAPI } from '../../services/api';
 import { colors, typography, shadows } from '../../theme';
+
+// ── On-device OCR via Gemini Vision (avoids large image uploads) ──────────────
+async function extractTextWithGemini(base64Image) {
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  const model = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.0-flash-lite';
+  if (!apiKey) throw new Error('OCR service not configured. Contact support.');
+
+  const prompt = `Extract ALL text from this grocery receipt image exactly as it appears.
+Include every line: store name, date, product names, quantities, prices, totals, and all other visible text.
+Output plain text only, preserving the layout as closely as possible.
+Do NOT summarise or interpret — just extract the raw text.`;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: prompt },
+          { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
+        ]}],
+        generationConfig: { temperature: 0 },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OCR failed (${response.status})`);
+  }
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) throw new Error('No text could be extracted from the receipt.');
+  return text;
+}
 
 export default function InvoiceScanScreen({ navigation }) {
   const [mode, setMode] = useState('picker'); // 'picker' | 'camera'
   const [hasPermission, setHasPermission] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const cameraRef = useRef(null);
 
   const requestCamera = async () => {
@@ -46,26 +84,33 @@ export default function InvoiceScanScreen({ navigation }) {
   const handleUpload = async () => {
     if (!selectedImage) return;
     setIsUploading(true);
+    setUploadStatus('Preparing image…');
     try {
-      const formData = new FormData();
-      formData.append('invoice', {
-        uri: selectedImage,
-        type: 'image/jpeg',
-        name: `receipt_${Date.now()}.jpg`,
-      });
-      const res = await invoicesAPI.scan(formData);
+      // Step 1: Compress image on device → reduces to ~200-400 KB
+      const compressed = await ImageManipulator.manipulateAsync(
+        selectedImage,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
+      // Step 2: Run OCR on device via Gemini Vision — sends compressed image to Gemini,
+      //         returns raw receipt text (NOT uploaded to our server)
+      setUploadStatus('Reading receipt…');
+      const ocrText = await extractTextWithGemini(compressed.base64);
+
+      // Step 3: Send only the extracted TEXT to our server (tiny JSON payload, no image)
+      setUploadStatus('Saving invoice…');
+      const res = await invoicesAPI.scanText({ ocrText });
       const payload = res?.data?.data || res?.data || {};
       const invoiceId = payload.invoiceId || payload.id || payload?.invoice?.id;
 
-      if (!invoiceId) {
-        throw new Error('Unexpected scan response from server.');
-      }
-
+      if (!invoiceId) throw new Error('Unexpected response from server.');
       navigation.replace('InvoiceReview', { invoiceId });
     } catch (err) {
-      Alert.alert('Upload failed', err?.response?.data?.message || err?.message || 'Please try again.');
+      Alert.alert('Scan failed', err?.response?.data?.message || err?.message || 'Please try again.');
     } finally {
       setIsUploading(false);
+      setUploadStatus('');
     }
   };
 
@@ -165,7 +210,7 @@ export default function InvoiceScanScreen({ navigation }) {
             {isUploading ? (
               <>
                 <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.uploadBtnText}>Scanning...</Text>
+                <Text style={styles.uploadBtnText}>{uploadStatus || 'Scanning…'}</Text>
               </>
             ) : (
               <>
